@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import CustomerInput from '../components/CustomerInput'
+import Toast from '../components/Toast'
 
 export default function AddTransaction() {
   const [formData, setFormData] = useState({
@@ -9,44 +11,92 @@ export default function AddTransaction() {
     amountPaid: ''
   })
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
+  const [customers, setCustomers] = useState([])
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
+
+  useEffect(() => {
+    fetchCustomers()
+  }, [])
+
+  const fetchCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name, total_debt')
+        .order('name')
+
+      if (error) throw error
+      setCustomers(data || [])
+    } catch (error) {
+      console.error('Failed to load customers:', error)
+    }
+  }
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type })
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
-    setMessage('')
 
-    const totalPrice = parseFloat(formData.totalPrice) || 0
-    const amountPaid = parseFloat(formData.amountPaid) || 0
-    const balance = totalPrice - amountPaid
+    try {
+      const totalPrice = parseFloat(formData.totalPrice) || 0
+      const amountPaid = parseFloat(formData.amountPaid) || 0
+      const balance = totalPrice - amountPaid
 
-    let status = 'pending'
-    if (balance === 0) status = 'paid'
-    else if (amountPaid > 0) status = 'partial'
+      let status = 'pending'
+      if (balance === 0) status = 'paid'
+      else if (amountPaid > 0) status = 'partial'
 
-    const { error } = await supabase.from('transactions').insert([
-      {
-        customer_name: formData.customerName,
-        items_bought: formData.itemsBought,
-        total_price: totalPrice,
-        amount_paid: amountPaid,
-        balance: balance,
-        status: status,
-        transaction_date: new Date().toISOString()
+      const customerName = formData.customerName.toLowerCase().trim()
+
+      // Check if customer exists, if not create
+      let customerId
+      const existingCustomer = customers.find(c => c.name === customerName)
+      
+      if (existingCustomer) {
+        customerId = existingCustomer.id
+      } else {
+        const { data: newCustomer, error: customerError } = await supabase
+          .from('customers')
+          .insert([{ name: customerName }])
+          .select()
+          .single()
+
+        if (customerError) throw customerError
+        customerId = newCustomer.id
+        
+        // Refresh customer list
+        fetchCustomers()
       }
-    ])
 
-    setLoading(false)
+      // Insert transaction
+      const { error } = await supabase.from('transactions').insert([
+        {
+          customer_id: customerId,
+          customer_name: customerName,
+          items_bought: formData.itemsBought.toLowerCase().trim(),
+          total_price: totalPrice,
+          amount_paid: amountPaid,
+          balance: balance,
+          status: status,
+          transaction_date: new Date().toISOString()
+        }
+      ])
 
-    if (error) {
-      setMessage('Error: ' + error.message)
-    } else {
-      setMessage('Transaction added successfully!')
+      if (error) throw error
+      
+      showToast('Transaction added successfully!')
       setFormData({ customerName: '', itemsBought: '', totalPrice: '', amountPaid: '' })
+    } catch (error) {
+      showToast('Error: ' + error.message, 'error')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -54,6 +104,14 @@ export default function AddTransaction() {
 
   return (
     <div className="page">
+      {toast.show && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast({ show: false, message: '', type: 'success' })}
+        />
+      )}
+
       <div className="page-header">
         <h1>Add Transaction</h1>
       </div>
@@ -61,13 +119,11 @@ export default function AddTransaction() {
       <form onSubmit={handleSubmit} className="form">
         <div className="form-group">
           <label>Customer Name</label>
-          <input
-            type="text"
-            name="customerName"
+          <CustomerInput
             value={formData.customerName}
-            onChange={handleChange}
+            onChange={(value) => setFormData({ ...formData, customerName: value })}
+            customers={customers}
             required
-            placeholder="Enter customer name"
           />
         </div>
 
@@ -115,8 +171,6 @@ export default function AddTransaction() {
             ₦{balance.toFixed(2)}
           </span>
         </div>
-
-        {message && <div className={message.includes('Error') ? 'error-msg' : 'success-msg'}>{message}</div>}
 
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? 'Saving...' : 'Add Transaction'}

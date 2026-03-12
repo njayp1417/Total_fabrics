@@ -3,11 +3,13 @@ import AddTransaction from './pages/AddTransaction'
 import Sales from './pages/Sales'
 import Credit from './pages/Credit'
 import BottomNav from './components/BottomNav'
+import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 function App() {
   return (
-    <Router>
+    <ErrorBoundary>
+      <Router>
       <div className="app">
         <header className="app-header">
           <h1 className="app-title">Total Fabrics</h1>
@@ -24,6 +26,7 @@ function App() {
         <BottomNav />
       </div>
     </Router>
+    </ErrorBoundary>
   )
 }
 
